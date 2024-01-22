@@ -64,7 +64,7 @@ process_assembly() {
   cd "$directory/$folder"
   
   # Assemble using flye and polish with mekada
-  flye --nano-hq reads_qc/"$folder"_filtered.fastq.gz --scaffold --out-dir flye --threads 8
+  flye --nano-hq reads_qc/"$folder"_filtered.fastq.gz --asm-coverage 50 --scaffold --meta --out-dir flye --threads 8
 
   # Return to the original directory
   cd -
