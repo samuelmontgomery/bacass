@@ -1,69 +1,76 @@
 #!/bin/bash
 
-# Default values
+# Initialize our own variables
 directory=""
 format="fastq.gz"
-skip-annotation=false
+skip_annotation=false
+skip_assembly=false
+skip_qc=false
 
-# Function to display help
 display_help() {
   echo "Usage: nanopore_assembly.sh [options...] " >&2
   echo
   echo "   -d, --directory     Specify the directory path - REQUIRED"
   echo "   -f, --format        Specify the input format (default: fastq.gz, options: bam)"
-  echo "   --skip-annotation   Run the annotation step - including this tag will annotate the assembly with bakta"
+  echo "   --skip-annotation   Skip the annotation step - including this tag will skip annotation with bakta"
+  echo "   --skip-assembly     Skip the assembly step - including this tag will skip the assembly with flye"
+  echo "   --skip-qc           Skip the annotation step - including this tag will skip NanoPlot QC metrics"  
+  echo "Note: the pipeline runs qc > assembly > annotation. Skipping an earlier step will break it!"
   echo
   exit 1
 }
 
-# Read the options
-TEMP=$(getopt -o d:f:h --long directory:,format:,annotate,help -n "$0" -- "$@")
-eval set -- "$TEMP"
-
-# Extract options and their arguments into variables
-while true; do
-  case "$1" in
-    -d | --directory )
-      directory="$2"
-      shift 2
+# Parse the command-line arguments
+while getopts ":d:f:-:" opt; do
+  case ${opt} in
+    d)
+      export directory="$OPTARG"
       ;;
-    -f | --format )
-      format="$2"
-      shift 2
+    f)
+      export format="$OPTARG"
       ;;
-    --skip-annotation )
-      skip-annotation=true
-      shift
+    -)
+      case "${OPTARG}" in
+        skip-annotation)
+          export skip_annotation=true
+          ;;
+        skip-assembly)
+          export skip_assembly=true
+          ;;
+        skip-qc)
+          export skip_qc=true
+          ;;
+        *)
+          echo "Invalid option: --${OPTARG}" >&2
+          display_help
+          ;;
+      esac
       ;;
-    -h | --help )
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
       display_help
-      shift
       ;;
-    -- )
-      shift
-      break
-      ;;
-    * )
-      echo "Incorrect option supplied. Use --help to view command options"
-      exit 1
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      display_help
       ;;
   esac
 done
 
 # Check if the directory path argument is provided
-if [[ -z "$directory" ]]; then
-  echo "Please provide the directory path as a command-line argument."
-  exit 1
+if [ -z "$directory" ]; then
+  echo "Please provide the directory path with -d or --directory."
+  display_help
 fi
 
 # Check if the specified directory exists
-if [[ ! -d "$directory" ]]; then
+if [ ! -d "$directory" ]; then
   echo "Directory does not exist: $directory"
-  exit 1
+  display_help
 fi
 
 # Get a list of all immediate subfolders in the specified directory
-folders=($(find "${directory}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;))
+folders=($(find "$directory" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;))
 
 # Function to process each folder for initial steps (2 cores per job)
 process_initial_steps() {
@@ -74,21 +81,20 @@ process_initial_steps() {
   mkdir "${directory}/${folder}/reads_qc"
 
   # Check if the format is bam
-  if [[ "${format}" == "bam" ]]; then
+  if [ "${format}" == "bam" ]; then
     # Use samtools to convert the file to fastq
-    samtools fastq -T "*" "${directory}/${folder}/${folder}.bam" > "${directory}/${folder}/${folder}.fastq"
+    samtools sort -n ${directory}/${folder}/*.bam -o ${directory}/${folder}/${folder}.bam
+    samtools fastq -T "*" ${directory}/${folder}/${folder}.bam > "${directory}/${folder}/${folder}.fastq"
 
     # Filter reads using filtlong
-    filtlong --minlength 4000 --keep_percent 95 --target_bases 700000000 --verbose "${directory}/${folder}/${folder}.fastq" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    filtlong --min_length 4000 --keep_percent 95 --target_bases 700000000 "${directory}/${folder}/${folder}.fastq" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
   else
     # Concatenate all fastq files into a single file
     cat "${directory}/${folder}"/*.fastq.gz > "${directory}/${folder}/${folder}.fastq.gz"
 
     # Filter reads using filtlong
-    filtlong --minlength 4000 --keep_percent 95 --target_bases 700000000 --verbose "${directory}/${folder}/${folder}.fastq.gz" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    filtlong --min_length 4000 --keep_percent 95 --target_bases 700000000 "${directory}/${folder}/${folder}.fastq.gz" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
   fi
-
-  
 }
 
 # Function to process each folder for QC steps
@@ -97,7 +103,7 @@ process_qc() {
   echo "Running NanoPlot: ${folder}"
 
   # Create NanoPlot QC plots
-  NanoPlot -t 2 --huge -o "${directory}/${folder}/nanoplot" --N50 --tsv_stats --loglength --info_in_report --fastq_rich "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+  NanoPlot -t 2 --huge -o "${directory}/${folder}/nanoplot" --N50 --tsv_stats --loglength --info_in_report --fastq "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
 }
 
 # Function to process each folder for assembly steps
@@ -106,7 +112,7 @@ process_assembly() {
   echo "Running assembly: ${folder}"
 
   # Assemble using flye and polish with mekada
-  flye --nano-hq "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" --asm-coverage 50 --scaffold --meta --out-dir "${directory}/${folder}/flye" --threads 8
+  flye --nano-hq "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" --scaffold --meta --out-dir "${directory}/${folder}/flye" --threads 8
 }
 
 # Function to process each folder for annotation steps
@@ -115,7 +121,7 @@ process_annotate() {
   echo "Running bakta: ${folder}"
 
   # Annotate with bakta
-  bakta "${directory}/${folder}/flye/assembly.fasta" --output "${directory}/${folder}/bakta" --verbose --debug --complete --threads 4
+  bakta "${directory}/${folder}/flye/assembly.fasta" --output "${directory}/${folder}/bakta" --verbose --threads 4
 
   # Run amrfinder
   amrfinder -p "${directory}/${folder}/bakta/assembly.faa" -g "${directory}/${folder}/bakta/assembly.gff3" -n "${directory}/${folder}/bakta/assembly.fna" -a "${directory}/${folder}/bakta" --organism Pseudomonas_aeruginosa -d /home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest --threads 4 --plus -o "${directory}/${folder}/bakta/amr.txt"
@@ -127,13 +133,23 @@ export -f process_assembly
 export -f process_annotate
 
 parallel -j 8 --eta -k process_initial_steps ::: "${folders[@]}"
-parallel -j 8 --eta -k process_qc ::: "${folders[@]}"
-parallel -j 2 --eta -k process_assembly ::: "${folders[@]}"
+
+# Check if QC should be run
+if [[ "${skip_qc}" == false ]]; then
+  parallel -j 8 --eta -k process_qc ::: "${folders[@]}"
+fi
+
+# Check if assembly should be run
+if [[ "${skip_assembly}" == false ]]; then
+  parallel -j 2 --eta -k process_assembly ::: "${folders[@]}"
+fi
 
 # Check if annotation should be run
-if [[ "${skip-annotation}" == false ]]; then
+if [[ "${skip_annotation}" == false ]]; then
   parallel -j 4 --eta -k process_annotate ::: "${folders[@]}"
 fi
+
+# Run CheckM2
 
 # Create checkm directory
 mkdir ${directory}/checkm
