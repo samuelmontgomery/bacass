@@ -12,7 +12,11 @@ The simply download this script and run!
 It has a few options:
 - -d | --directory: pass the directory containing folders of reads for each bacteria on the command line (REQUIRED)
 - -f | --format: specify the input format of the reads as either fastq.gz or bam. default: fastq.gz
-- --annotate: whether to run the annotation steps after assembly (adds quite a bit of time to run). default: false
+- --skip-qc: whether to skip QC metrics via nanoplot. default: false
+- --skip-assembly: whether to run the assembly steps using flye. default: false
+- --skip-annotation: whether to run the annotation steps after assembly (adds quite a bit of time to run). default: false
+
+Note: the script runs qc > assembly > annotation. If you skip assembly but not annotation, it will break!
 
 Example:
 nanopore_assembly.sh -d /home/ubuntu/bacteria -f bam --annotate
