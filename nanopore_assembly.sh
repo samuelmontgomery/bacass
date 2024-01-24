@@ -1,44 +1,94 @@
 #!/bin/bash
 
+# Default values
+directory=""
+format="fastq.gz"
+skip-annotation=false
+
+# Function to display help
+display_help() {
+  echo "Usage: nanopore_assembly.sh [options...] " >&2
+  echo
+  echo "   -d, --directory     Specify the directory path - REQUIRED"
+  echo "   -f, --format        Specify the input format (default: fastq.gz, options: bam)"
+  echo "   --skip-annotation   Run the annotation step - including this tag will annotate the assembly with bakta"
+  echo
+  exit 1
+}
+
+# Read the options
+TEMP=$(getopt -o d:f:h --long directory:,format:,annotate,help -n "$0" -- "$@")
+eval set -- "$TEMP"
+
+# Extract options and their arguments into variables
+while true; do
+  case "$1" in
+    -d | --directory )
+      directory="$2"
+      shift 2
+      ;;
+    -f | --format )
+      format="$2"
+      shift 2
+      ;;
+    --skip-annotation )
+      skip-annotation=true
+      shift
+      ;;
+    -h | --help )
+      display_help
+      shift
+      ;;
+    -- )
+      shift
+      break
+      ;;
+    * )
+      echo "Incorrect option supplied. Use --help to view command options"
+      exit 1
+      ;;
+  esac
+done
+
 # Check if the directory path argument is provided
-if [[ $# -lt 1 ]]; then
+if [[ -z "$directory" ]]; then
   echo "Please provide the directory path as a command-line argument."
   exit 1
 fi
 
-# Get the directory path from the command-line argument
-directory="${1}"
-
 # Check if the specified directory exists
-if [[ ! -d "${directory}" ]]; then
-  echo "Directory does not exist: ${directory}"
+if [[ ! -d "$directory" ]]; then
+  echo "Directory does not exist: $directory"
   exit 1
 fi
 
 # Get a list of all immediate subfolders in the specified directory
 folders=($(find "${directory}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;))
 
-# Check if --annotate is passed as an argument
-annotate=false
-if [[ $# -ge 2 ]]; then
-  if [[ "${2}" == "--annotate" ]]; then
-    annotate=true
-  fi
-fi
-
 # Function to process each folder for initial steps (2 cores per job)
 process_initial_steps() {
   folder="${1}"
   echo "Processing folder: ${folder}"
 
-  # Concatenate all fastq files into a single file
-  cat "${directory}/${folder}"/*.fastq.gz > "${directory}/${folder}/${folder}.fastq.gz"
-
   # Create output dir variable
   mkdir "${directory}/${folder}/reads_qc"
+
+  # Check if the format is bam
+  if [[ "${format}" == "bam" ]]; then
+    # Use samtools to convert the file to fastq
+    samtools fastq -T "*" "${directory}/${folder}/${folder}.bam" > "${directory}/${folder}/${folder}.fastq"
+
+    # Filter reads using filtlong
+    filtlong --minlength 4000 --keep_percent 95 --target_bases 700000000 --verbose "${directory}/${folder}/${folder}.fastq" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+  else
+    # Concatenate all fastq files into a single file
+    cat "${directory}/${folder}"/*.fastq.gz > "${directory}/${folder}/${folder}.fastq.gz"
+
+    # Filter reads using filtlong
+    filtlong --minlength 4000 --keep_percent 95 --target_bases 700000000 --verbose "${directory}/${folder}/${folder}.fastq.gz" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+  fi
+
   
-  # Filter reads using filtlong
-  filtlong --minlength 4000 --keep_percent 95 --target_bases 700000000 --verbose "${directory}/${folder}/${folder}.fastq" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
 }
 
 # Function to process each folder for QC steps
@@ -81,7 +131,7 @@ parallel -j 8 --eta -k process_qc ::: "${folders[@]}"
 parallel -j 2 --eta -k process_assembly ::: "${folders[@]}"
 
 # Check if annotation should be run
-if [[ "${annotate}" == true ]]; then
+if [[ "${skip-annotation}" == false ]]; then
   parallel -j 4 --eta -k process_annotate ::: "${folders[@]}"
 fi
 
@@ -93,7 +143,7 @@ for folder in "${folders[@]}"
 do
   if [[ "${folder}" != "checkm" ]]; then
     # Check if annotation was run
-    if [[ "${annotate}" == true ]]; then
+    if [[ "${skip-annotation}" == false ]]; then
       # Move assembly to checkm folder, renaming the file with the folder name
       cp "${directory}/${folder}/bakta/assembly.fna" "${directory}/checkm/${folder}_assembly.fna"
     else
@@ -105,7 +155,7 @@ done
 # Run CheckM2 on all genomes
 conda activate checkm
 
-checkm2 predict --threads 16 --input ${directory}/checkm --output-directory ${directory}/checkm/output --tmpdir /home/ubuntu/scratch/tmp
+checkm2 predict --threads 16 --input ${directory}/checkm --output-directory ${directory}/checkm/output --tmpdir /mnt/scratch/tmp
 
 conda activate nano
 
