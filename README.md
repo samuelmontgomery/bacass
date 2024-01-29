@@ -6,8 +6,8 @@ This script is a pipeline for the filtering, QC, assembly and annotation of bact
 **Usage**
 
 This pipeline can be used with data sequenced using R10.4.1 Nanopore flow cells with a <5% read error rate. It allows for the use of fastq.gz files output by basecalling using MinKNOW, or using bam files output by basecalling in Dorado.
-To run, activate install samtools, filtlong, nanoplot, flye, bakta, ncbi-amrfinderplus, and parallel in a conda environment, and install checkm2 in a conda environment called checkm
-The simply download this script and run!
+To run, create a conda/mamba environment using nano_env.yml (conda env create -f nano_env.yml), and install checkm2 in a conda environment called checkm
+Then simply download this script and run!
 
 It has a few options:
 - -d, --directory: pass the directory containing folders of reads for each bacteria on the command line (REQUIRED)
