@@ -10,8 +10,8 @@ To run, activate install samtools, filtlong, nanoplot, flye, bakta, ncbi-amrfind
 The simply download this script and run!
 
 It has a few options:
-- -d | --directory: pass the directory containing folders of reads for each bacteria on the command line (REQUIRED)
-- -f | --format: specify the input format of the reads as either fastq.gz or bam. default: fastq.gz
+- -d, --directory: pass the directory containing folders of reads for each bacteria on the command line (REQUIRED)
+- -f, --format: specify the input format of the reads as either fastq.gz or bam. default: fastq.gz
 - --skip-qc: whether to skip QC metrics via nanoplot. default: false
 - --skip-assembly: whether to run the assembly steps using flye. default: false
 - --skip-annotation: whether to run the annotation steps after assembly (adds quite a bit of time to run). default: false
@@ -23,13 +23,10 @@ nanopore_assembly.sh -d /home/ubuntu/bacteria -f bam --annotate
 
 This script assumes you have your data in a folder structure as output when demultiplexing in MinKNOW, e.g. specifying --directory as /home/ubuntu/bacteria/lib/fastq_pass
 
--lib
- |
-  -- fastq_pass
-    | 
-     -- barcode01
-     -- barcode02
-     -- barcode03
-     etc
+  -- barcode01
+  -- barcode02
+  -- barcode03
 
-it also works best if you rename each the barcode folders with a unique identifier as output files will use folder name to rename
+etc
+
+it also works best if you rename each the barcode folders with a unique identifier as output files will use folder name to rename - nanopore_bam.sh will rename the folders (barcode01, barcode02) to the corresponding name in a file called barcodes.txt
