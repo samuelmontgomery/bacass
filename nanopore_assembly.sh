@@ -83,11 +83,12 @@ process_initial_steps() {
   # Check if the format is bam
   if [ "${format}" == "bam" ]; then
     # Use samtools to convert the file to fastq
-    samtools sort -n ${directory}/${folder}/*.bam -o ${directory}/${folder}/${folder}.bam
-    samtools fastq -T "*" ${directory}/${folder}/${folder}.bam > "${directory}/${folder}/${folder}.fastq"
+    #samtools sort -n ${directory}/${folder}/*.bam -o ${directory}/${folder}/${folder}.bam
+    samtools fastq -T "*" ${directory}/${folder}/*.bam > "${directory}/${folder}/${folder}.fastq"
 
     # Filter reads using filtlong
     filtlong --min_length 4000 --keep_percent 95 --target_bases 700000000 "${directory}/${folder}/${folder}.fastq" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    rm "${directory}/${folder}/${folder}.fastq"
   else
     # Concatenate all fastq files into a single file
     cat "${directory}/${folder}"/*.fastq.gz > "${directory}/${folder}/${folder}.fastq.gz"
@@ -150,30 +151,43 @@ if [[ "${skip_annotation}" == false ]]; then
 fi
 
 # Run CheckM2
-
 # Create checkm directory
 mkdir ${directory}/checkm
 
-# Copy assemblies to the checkm file
-for folder in "${folders[@]}"
-do
-  if [[ "${folder}" != "checkm" ]]; then
-    # Check if annotation was run
-    if [[ "${skip-annotation}" == false ]]; then
-      # Move assembly to checkm folder, renaming the file with the folder name
-      cp "${directory}/${folder}/bakta/assembly.fna" "${directory}/checkm/${folder}_assembly.fna"
-    else
-      cp "${directory}/${folder}/flye/assembly.fasta" "${directory}/checkm/${folder}_assembly.fasta"
+# Function to copy largest circular assemblies to the checkm file
+process_checkm() {
+    folder="${1}"
+    # Define the file paths
+    info_file="${directory}/${folder}/flye/assembly_info.txt"
+    fasta_file="${directory}/${folder}/flye/assembly.fasta"
+    output_file="${directory}/checkm/${folder}_flye.fasta"
+
+    echo "Processing $folder"
+
+    # Identify the longest contig where circ. = Y
+    contig=$(awk 'BEGIN {max_len=0; max_contig=""} NR>1 && $4=="Y" && int($2)>max_len {max_len=int($2); max_contig=$1} END {print max_contig}' ${info_file})
+
+    # If no complete contig is found, select the longest incomplete contig
+    if [ -z "$contig" ]; then
+        contig=$(awk 'BEGIN {max_len=0; max_contig=""} NR>1 && int($2)>max_len {max_len=int($2); max_contig=$1} END {print max_contig}' ${info_file})
     fi
-  fi
-done
+
+    echo "Selected contig: $contig"
+
+    # Filter the .fasta file to extract just that contig into a new fasta file
+    awk -v contig=">$contig" '/^>/ {if (p) {exit}; p=(index($0,contig)>0)} p' ${fasta_file} > ${output_file}
+    echo "Output file size: $(wc -c < "${output_file}")"
+}
+
+export -f process_checkm
+parallel -j 8 process_checkm ::: "${folders[@]}"
 
 # Run CheckM2 on all genomes
-conda activate checkm
+#conda activate checkm
 
-checkm2 predict --threads 16 --input ${directory}/checkm --output-directory ${directory}/checkm/output --tmpdir /mnt/scratch/tmp
+#checkm2 predict --threads 16 --input ${directory}/checkm --output-directory ${directory}/checkm/output --tmpdir /mnt/scratch/tmp
 
-conda activate nano
+#conda activate nano
 
 # Combined NanoPlot stats into a single csv file
 # Initialize an associative array to hold the data and an array to hold the keys
