@@ -125,7 +125,7 @@ process_annotate() {
   bakta "${directory}/${folder}/flye/assembly.fasta" --output "${directory}/${folder}/bakta" --verbose --threads 4
 
   # Run amrfinder
-  amrfinder -p "${directory}/${folder}/bakta/assembly.faa" -g "${directory}/${folder}/bakta/assembly.gff3" -n "${directory}/${folder}/bakta/assembly.fna" -a "${directory}/${folder}/bakta" --organism Pseudomonas_aeruginosa -d /home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest --threads 4 --plus -o "${directory}/${folder}/bakta/amr.txt"
+  amrfinder -p "${directory}/${folder}/bakta/assembly.faa" -g "${directory}/${folder}/bakta/assembly.gff3" -n "${directory}/${folder}/bakta/assembly.fna" -a bakta --organism Pseudomonas_aeruginosa -d /home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest --threads 4 --plus -o "${directory}/${folder}/bakta/amr.txt"
 }
 
 export -f process_initial_steps
