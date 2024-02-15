@@ -6,6 +6,7 @@ format="fastq.gz"
 skip_annotation=false
 skip_assembly=false
 skip_qc=false
+skip_mapping=false
 
 display_help() {
   echo "Usage: nanopore_assembly.sh [options...] " >&2
@@ -15,6 +16,7 @@ display_help() {
   echo "   --skip-annotation   Skip the annotation step - including this tag will skip annotation with bakta"
   echo "   --skip-assembly     Skip the assembly step - including this tag will skip the assembly with flye"
   echo "   --skip-qc           Skip the annotation step - including this tag will skip NanoPlot QC metrics"  
+  echo "   --skip-mapping      Skip the mapping step - including this tag will skip mapping the reads back to the de novo assembly"
   echo "Note: the pipeline runs qc > assembly > annotation. Skipping an earlier step will break it!"
   echo
   exit 1
@@ -39,6 +41,9 @@ while getopts ":d:f:-:" opt; do
           ;;
         skip-qc)
           export skip_qc=true
+          ;;
+        skip-mapping)
+          export skip_mapping=true
           ;;
         *)
           echo "Invalid option: --${OPTARG}" >&2
@@ -125,13 +130,53 @@ process_annotate() {
   bakta "${directory}/${folder}/flye/assembly.fasta" --output "${directory}/${folder}/bakta" --verbose --threads 4
 
   # Run amrfinder
-  amrfinder -p "${directory}/${folder}/bakta/assembly.faa" -g "${directory}/${folder}/bakta/assembly.gff3" -n "${directory}/${folder}/bakta/assembly.fna" -a bakta --organism Pseudomonas_aeruginosa -d /home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest --threads 4 --plus -o "${directory}/${folder}/bakta/amr.txt"
+  amrfinder -p "${directory}/${folder}/bakta/assembly.faa" -g "${directory}/${folder}/bakta/assembly.gff3" -n "${directory}/${folder}/bakta/assembly.fna" -a bakta --organism Pseudomonas_aeruginosa -d /home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest --threads 4 --plus -o "${directory}/${folder}/amr.txt"
+}
+
+process_map() {
+  folder="${1}"
+  echo "Running minimap: ${folder}"
+
+  mkdir "${directory}/${folder}/minimap"
+
+  # Map reads back to the reference using minimap2
+  minimap2 -ax map-ont -t 16 "${directory}/${folder}/bakta/assembly.fna" "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" > "${directory}/${folder}/minimap/${folder}.sam"
+
+  # Run qualimap
+  samtools sort "${directory}/${folder}/minimap/${folder}.sam" -o "${directory}/${folder}/minimap/${folder}.bam"
+  qualimap bamqc -bam "${directory}/${folder}/minimap/${folder}.bam" -outdir "${directory}/${folder}/minimap/"
+}
+
+process_QC_prep() {
+    folder="${1}"
+    # Define the file paths
+    info_file="${directory}/${folder}/flye/assembly_info.txt"
+    fasta_file="${directory}/${folder}/flye/assembly.fasta"
+    output_file="${directory}/QC/${folder}_flye.fasta"
+
+    echo "Processing $folder"
+
+    # Identify the longest contig where circ. = Y
+    contig=$(awk 'BEGIN {max_len=0; max_contig=""} NR>1 && $4=="Y" && int($2)>max_len {max_len=int($2); max_contig=$1} END {print max_contig}' ${info_file})
+
+    # If no complete contig is found, copy the whole assembly file (contamination will be higher)
+    if [ -z "$contig" ]; then
+        contig=$fasta_file
+    fi
+
+    echo "Selected contig: $contig"
+
+    # Filter the .fasta file to extract just that contig into a new fasta file
+    awk -v contig=">$contig" '/^>/ {if (p) {exit}; p=(index($0,contig)>0)} p' ${fasta_file} > ${output_file}
+    echo "Output file size: $(wc -c < "${output_file}")"
 }
 
 export -f process_initial_steps
 export -f process_qc
 export -f process_assembly
 export -f process_annotate
+export -f process_map
+export -f process_QC_prep
 
 parallel -j 8 --eta -k process_initial_steps ::: "${folders[@]}"
 
@@ -150,44 +195,27 @@ if [[ "${skip_annotation}" == false ]]; then
   parallel -j 4 --eta -k process_annotate ::: "${folders[@]}"
 fi
 
-# Run CheckM2
-# Create checkm directory
-mkdir ${directory}/checkm
+# Check if mapping should be run
+if [[ "${skip_mapping}" == false ]]; then
+  parallel -j 1 --eta -k process_map ::: "${folders[@]}"
+fi
 
-# Function to copy largest circular assemblies to the checkm file
-process_checkm() {
-    folder="${1}"
-    # Define the file paths
-    info_file="${directory}/${folder}/flye/assembly_info.txt"
-    fasta_file="${directory}/${folder}/flye/assembly.fasta"
-    output_file="${directory}/checkm/${folder}_flye.fasta"
+# Check if QC should be run
+if [[ "${skip_qc}" == false ]]; then
+  mkdir ${directory}/QC
+  # Run QC prep
+  parallel -j 8 --eta -k process_QC_prep ::: "${folders[@]}"
+  # Run BUSCO
+  conda activate busco
+  busco -i "${directory}/QC" -m genome --auto-lineage-prok --download_path "/home/ubuntu/scratch/references/busco/busco_downloads" -c 16 -o "${directory}/QC/busco" -f
+  # Run CheckM
+  conda activate checkm
+  checkm lineage_wf -t 16 -x fa "${directory}/QC" "${directory}/QC/checkm_results"
+  checkm2 predict --threads 16 --input "${directory}/QC" --output-directory "${directory}/QC/checkm2_results" --tmpdir "/home/ubuntu/scratch/tmp"
+fi
 
-    echo "Processing $folder"
-
-    # Identify the longest contig where circ. = Y
-    contig=$(awk 'BEGIN {max_len=0; max_contig=""} NR>1 && $4=="Y" && int($2)>max_len {max_len=int($2); max_contig=$1} END {print max_contig}' ${info_file})
-
-    # If no complete contig is found, select the longest incomplete contig
-    if [ -z "$contig" ]; then
-        contig=$(awk 'BEGIN {max_len=0; max_contig=""} NR>1 && int($2)>max_len {max_len=int($2); max_contig=$1} END {print max_contig}' ${info_file})
-    fi
-
-    echo "Selected contig: $contig"
-
-    # Filter the .fasta file to extract just that contig into a new fasta file
-    awk -v contig=">$contig" '/^>/ {if (p) {exit}; p=(index($0,contig)>0)} p' ${fasta_file} > ${output_file}
-    echo "Output file size: $(wc -c < "${output_file}")"
-}
-
-export -f process_checkm
-parallel -j 8 process_checkm ::: "${folders[@]}"
-
-# Run CheckM2 on all genomes
-#conda activate checkm
-
-#checkm2 predict --threads 16 --input ${directory}/checkm --output-directory ${directory}/checkm/output --tmpdir /mnt/scratch/tmp
-
-#conda activate nano
+# Generate NanoPlot stats
+conda activate nano
 
 # Combined NanoPlot stats into a single csv file
 # Initialize an associative array to hold the data and an array to hold the keys
