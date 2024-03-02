@@ -5,6 +5,7 @@ directory=""
 format="fastq.gz"
 skip_annotation=false
 skip_assembly=false
+skip_nanoplot_qc=false
 skip_qc=false
 skip_mapping=false
 
@@ -15,9 +16,10 @@ display_help() {
   echo "   -f, --format        Specify the input format (default: fastq.gz, options: bam)"
   echo "   --skip-annotation   Skip the annotation step - including this tag will skip annotation with bakta"
   echo "   --skip-assembly     Skip the assembly step - including this tag will skip the assembly with flye"
-  echo "   --skip-qc           Skip the annotation step - including this tag will skip NanoPlot QC metrics"  
+  echo "   --skip-nanoplot-qc  Skip the annotation step - including this tag will skip NanoPlot QC metrics"  
   echo "   --skip-mapping      Skip the mapping step - including this tag will skip mapping the reads back to the de novo assembly"
-  echo "Note: the pipeline runs qc > assembly > annotation. Skipping an earlier step will break it!"
+  echo "   --skip-qc           Skip downstream QC steps (BUSCO, QUAST, CheckM)"
+  echo "Note: the pipeline runs qc > assembly > annotation > mapping > qc. Skipping an earlier step will break it!"
   echo
   exit 1
 }
@@ -44,6 +46,9 @@ while getopts ":d:f:-:" opt; do
           ;;
         skip-mapping)
           export skip_mapping=true
+          ;;
+        skip-nanoplot-qc)
+          export skip_nanoplot_qc=true
           ;;
         *)
           echo "Invalid option: --${OPTARG}" >&2
@@ -88,28 +93,48 @@ process_initial_steps() {
   # Check if the format is bam
   if [ "${format}" == "bam" ]; then
     # Use samtools to convert the file to fastq
-    #samtools sort -n ${directory}/${folder}/*.bam -o ${directory}/${folder}/${folder}.bam
     samtools fastq -T "*" ${directory}/${folder}/*.bam > "${directory}/${folder}/${folder}.fastq"
 
     # Filter reads using filtlong
-    filtlong --min_length 4000 --keep_percent 95 --target_bases 700000000 "${directory}/${folder}/${folder}.fastq" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    filtlong \
+      --min_length 4000 \
+      --keep_percent 95 \
+      --target_bases 700000000 \
+      "${directory}/${folder}/${folder}.fastq" \
+      2> >(tee "${directory}/${folder}/reads_qc/${folder}.log" >&2) \
+      | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    
     rm "${directory}/${folder}/${folder}.fastq"
   else
     # Concatenate all fastq files into a single file
     cat "${directory}/${folder}"/*.fastq.gz > "${directory}/${folder}/${folder}.fastq.gz"
 
     # Filter reads using filtlong
-    filtlong --min_length 4000 --keep_percent 95 --target_bases 700000000 "${directory}/${folder}/${folder}.fastq.gz" | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    filtlong \
+    --min_length 4000 \
+    --keep_percent 95 \
+    --target_bases 700000000 \
+    "${directory}/${folder}/${folder}.fastq.gz" \
+    2> >(tee "${directory}/${folder}/reads_qc/${folder}.log" >&2) \
+    | gzip > "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
   fi
 }
 
 # Function to process each folder for QC steps
-process_qc() {
+process_nanoplot() {
   folder="${1}"
   echo "Running NanoPlot: ${folder}"
 
   # Create NanoPlot QC plots
-  NanoPlot -t 2 --huge -o "${directory}/${folder}/nanoplot" --N50 --tsv_stats --loglength --info_in_report --fastq "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+  NanoPlot \
+    -t 2 \
+    --huge \
+    -o "${directory}/${folder}/nanoplot" \
+    --N50 \
+    --tsv_stats \
+    --loglength \
+    --info_in_report \
+    --fastq "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
 }
 
 # Function to process each folder for assembly steps
@@ -118,7 +143,12 @@ process_assembly() {
   echo "Running assembly: ${folder}"
 
   # Assemble using flye and polish with mekada
-  flye --nano-hq "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" --scaffold --meta --out-dir "${directory}/${folder}/flye" --threads 8
+  flye \
+    --nano-hq "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" \
+    --scaffold \
+    --meta \
+    --out-dir "${directory}/${folder}/flye" \
+    --threads 8
 }
 
 # Function to process each folder for annotation steps
@@ -127,10 +157,23 @@ process_annotate() {
   echo "Running bakta: ${folder}"
 
   # Annotate with bakta
-  bakta "${directory}/${folder}/flye/assembly.fasta" --output "${directory}/${folder}/bakta" --verbose --threads 4
+  bakta \
+    "${directory}/${folder}/flye/assembly.fasta" \
+    --output "${directory}/${folder}/bakta" \
+    --verbose \
+    --threads 4
 
   # Run amrfinder
-  amrfinder -p "${directory}/${folder}/bakta/assembly.faa" -g "${directory}/${folder}/bakta/assembly.gff3" -n "${directory}/${folder}/bakta/assembly.fna" -a bakta --organism Pseudomonas_aeruginosa -d /home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest --threads 4 --plus -o "${directory}/${folder}/amr.txt"
+  amrfinder \
+    -p "${directory}/${folder}/bakta/assembly.faa" \
+    -g "${directory}/${folder}/bakta/assembly.gff3" \
+    -n "${directory}/${folder}/bakta/assembly.fna" \
+    -a bakta \
+    --organism Pseudomonas_aeruginosa \
+    -d /home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest \
+    --threads 4 \
+    --plus \
+    -o "${directory}/${folder}/amr.txt"
 }
 
 process_map() {
@@ -140,11 +183,21 @@ process_map() {
   mkdir "${directory}/${folder}/minimap"
 
   # Map reads back to the reference using minimap2
-  minimap2 -ax map-ont -t 16 "${directory}/${folder}/bakta/assembly.fna" "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" > "${directory}/${folder}/minimap/${folder}.sam"
+  minimap2 \
+    -ax \
+    map-ont \
+    -t 16 \
+    "${directory}/${folder}/bakta/assembly.fna" \
+    "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" > "${directory}/${folder}/minimap/${folder}.sam"
 
   # Run qualimap
-  samtools sort "${directory}/${folder}/minimap/${folder}.sam" -o "${directory}/${folder}/minimap/${folder}.bam"
-  qualimap bamqc -bam "${directory}/${folder}/minimap/${folder}.bam" -outdir "${directory}/${folder}/minimap/"
+  samtools \
+    sort "${directory}/${folder}/minimap/${folder}.sam" \
+    -o "${directory}/${folder}/minimap/${folder}.bam"
+  qualimap \
+    bamqc \
+    -bam "${directory}/${folder}/minimap/${folder}.bam" \
+    -outdir "${directory}/${folder}/minimap/"
 }
 
 process_QC_prep() {
@@ -152,7 +205,7 @@ process_QC_prep() {
     # Define the file paths
     info_file="${directory}/${folder}/flye/assembly_info.txt"
     fasta_file="${directory}/${folder}/flye/assembly.fasta"
-    output_file="${directory}/QC/${folder}_flye.fasta"
+    output_file="${directory}/QC/input/${folder}_flye.fasta"
 
     echo "Processing $folder"
 
@@ -161,7 +214,7 @@ process_QC_prep() {
 
     # If no complete contig is found, copy the whole assembly file (contamination will be higher)
     if [ -z "$contig" ]; then
-        contig=$fasta_file
+        contig=$(awk 'BEGIN {max_len=0; max_contig=""} NR>1 && int($2)>max_len {max_len=int($2); max_contig=$1} END {print max_contig}' ${info_file})
     fi
 
     echo "Selected contig: $contig"
@@ -171,18 +224,48 @@ process_QC_prep() {
     echo "Output file size: $(wc -c < "${output_file}")"
 }
 
+process_quast() {
+  folder="${1}"
+  echo "Running QUAST: ${folder}"
+  # Run QUAST
+  quast -o "${directory}/${folder}/quast" \
+    -r /home/ubuntu/scratch/references/pa01.fasta \
+    -m 1000000 \
+    --threads 4 \
+    --circos \
+    --nanopore "${directory}/${folder}/reads_qc/${folder}_filtered.fastq.gz" \
+    -g "${directory}/${folder}/bakta/assembly.gff3" \
+    -l "${folder}" \
+    "${directory}/${folder}/bakta/assembly.fna"
+}
+
+process_blast() {
+  folder="${1}"
+  echo "Running BLASTN: ${folder}"
+  blastn \
+    -task megablast \
+    -db nt_prok \
+    -taxids 287 \
+    -query "${directory}/${folder}/bakta/assembly.fna" \
+    -out "${directory}/${folder}/blast_result.tsv" \
+    -num_threads 4 \
+    -outfmt "7 std pident nident mismatch positive gaps qcovs qcovus staxids qseqid"
+}
+
 export -f process_initial_steps
-export -f process_qc
+export -f process_nanoplot
 export -f process_assembly
 export -f process_annotate
 export -f process_map
 export -f process_QC_prep
+export -f process_quast
+export -f process_blast
 
 parallel -j 8 --eta -k process_initial_steps ::: "${folders[@]}"
 
 # Check if QC should be run
-if [[ "${skip_qc}" == false ]]; then
-  parallel -j 8 --eta -k process_qc ::: "${folders[@]}"
+if [[ "${skip_nanoplot_qc}" == false ]]; then
+  parallel -j 8 --eta -k process_nanoplot ::: "${folders[@]}"
 fi
 
 # Check if assembly should be run
@@ -202,16 +285,41 @@ fi
 
 # Check if QC should be run
 if [[ "${skip_qc}" == false ]]; then
-  mkdir ${directory}/QC
+  mkdir "${directory}/QC"
+  mkdir "${directory}/QC/input"
+  cd "${directory}"
+  # Run BLASTn
+  parallel -j 4 --eta -k process_blast ::: "${folders[@]}"
   # Run QC prep
   parallel -j 8 --eta -k process_QC_prep ::: "${folders[@]}"
+  # Run QUAST
+  conda activate quast
+  parallel -j 4 --eta -k process_quast ::: "${folders[@]}"
   # Run BUSCO
   conda activate busco
-  busco -i "${directory}/QC" -m genome --auto-lineage-prok --download_path "/home/ubuntu/scratch/references/busco/busco_downloads" -c 16 -o "${directory}/QC/busco" -f
+  busco \
+    -i "${directory}/QC/input" \
+    -m genome \
+    -l pseudomonadales_odb10 \
+    --download_path "/home/ubuntu/scratch/references/busco/busco_downloads" \
+    -c 16 \
+    -o "./QC/busco"
   # Run CheckM
+  conda activate nano
+  checkm \
+    lineage_wf \
+    -t 16 \
+    -x fasta \
+    "${directory}/QC/input" \
+    "${directory}/QC/checkm_results"
   conda activate checkm
-  checkm lineage_wf -t 16 -x fa "${directory}/QC" "${directory}/QC/checkm_results"
-  checkm2 predict --threads 16 --input "${directory}/QC" --output-directory "${directory}/QC/checkm2_results" --tmpdir "/home/ubuntu/scratch/tmp"
+  checkm2 \
+    predict \
+    --threads 16 \
+    --input "${directory}/QC/input" \
+    -x fasta \
+    --output-directory "${directory}/QC/checkm2_results" \
+    --tmpdir "/home/ubuntu/scratch/tmp"
 fi
 
 # Generate NanoPlot stats
