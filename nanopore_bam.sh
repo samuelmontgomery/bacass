@@ -9,7 +9,7 @@ fi
 # Read each line in the file and create folders, then move matching files
 while read -r barcode new_name; do
     mkdir -p "${new_name}"
-    for file in SQK-NBD114-96_barcode${barcode}.bam; do
+    for file in *_barcode${barcode}.bam; do
         if [ -e "$file" ]; then
             mv "$file" "${new_name}/"
             echo "Moved $file to ${new_name}/"
