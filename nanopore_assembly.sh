@@ -3,6 +3,7 @@
 # Initialize our own variables
 directory=""
 format="fastq.gz"
+genome_size=""
 skip_filt=false
 skip_annotation=false
 skip_assembly=false
@@ -15,6 +16,7 @@ display_help() {
   echo
   echo "   -d, --directory     Specify the directory path - REQUIRED"
   echo "   -f, --format        Specify the input format (default: fastq.gz, options: bam)"
+  echo "   -g, --genome        Specify the expected genome size (make ~90% of the expected genome size to include variations)"
   echo "   --skip-filt         Skip the filtering steps - including this tag will skip the filtering steps"
   echo "   --skip-annotation   Skip the annotation step - including this tag will skip annotation with bakta"
   echo "   --skip-assembly     Skip the assembly step - including this tag will skip the assembly with flye"
@@ -27,13 +29,16 @@ display_help() {
 }
 
 # Parse the command-line arguments
-while getopts ":d:f:-:" opt; do
+while getopts ":d:f:g:-:" opt; do
   case ${opt} in
     d)
       export directory="$OPTARG"
       ;;
     f)
       export format="$OPTARG"
+      ;;
+    g)
+      export genome_size="$OPTARG"
       ;;
     -)
       case "${OPTARG}" in
@@ -153,13 +158,23 @@ process_assembly() {
     --meta \
     --out-dir "${directory}/${folder}/flye" \
     --threads 8
-  
+}
+
+process_dnaapler() {
+  folder="${1}"
+  # Filter flye assembly for only circular contig with appropriate genome size
+  filter_contigs.py \
+    "${genome_size}" \
+    "${directory}/${folder}/flye/assembly_info.txt" \
+    "${directory}/${folder}/flye/assembly.fasta" \
+    "${directory}/${folder}/flye/${folder}.fasta"
+
   dnaapler \
-    chromosome \
+    all \
     --input "${directory}/${folder}/flye/assembly.fasta" \
     --output "${directory}/${folder}/flye/dnaapler" \
     --prefix "${folder}" \
-    --threads 8
+    --threads 4
 }
 
 # Function to process each folder for annotation steps
@@ -181,7 +196,7 @@ process_annotate() {
     -n "${directory}/${folder}/bakta/${folder}_reoriented.fna" \
     -a bakta \
     --organism Pseudomonas_aeruginosa \
-    -d "/home/ubuntu/scratch/references/bakta/db" \
+    -d "/home/ubuntu/scratch/references/bakta/db/amrfinderplus-db/latest" \
     --threads 4 \
     --plus \
     -o "${directory}/${folder}/bakta/${folder}_amr.txt"
@@ -265,6 +280,7 @@ process_blast() {
 export -f process_initial_steps
 export -f process_nanoplot
 export -f process_assembly
+export -f process_dnaapler
 export -f process_annotate
 export -f process_map
 export -f process_QC_prep
@@ -275,6 +291,7 @@ export -f process_blast
 if [[ "${skip_filt}" == false ]]; then
   parallel -j 8 --eta -k process_initial_steps ::: "${folders[@]}"
 fi
+
 # Check if QC should be run
 if [[ "${skip_nanoplot_qc}" == false ]]; then
   parallel -j 8 --eta -k process_nanoplot ::: "${folders[@]}"
@@ -283,6 +300,10 @@ fi
 # Check if assembly should be run
 if [[ "${skip_assembly}" == false ]]; then
   parallel -j 2 --eta -k process_assembly ::: "${folders[@]}"
+fi
+
+# Check if dnaapler should be run
+  parallel -j 4 --eta -k process_dnaapler ::: "${folders[@]}"
 fi
 
 # Check if annotation should be run
@@ -335,7 +356,7 @@ if [[ "${skip_qc}" == false ]]; then
 fi
 
 # Generate NanoPlot stats
-conda activate nano
+#conda activate nano
 
 # Combined NanoPlot stats into a single csv file
 # Initialize an associative array to hold the data and an array to hold the keys
