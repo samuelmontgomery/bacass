@@ -300,9 +300,6 @@ fi
 # Check if assembly should be run
 if [[ "${skip_assembly}" == false ]]; then
   parallel -j 2 --eta -k process_assembly ::: "${folders[@]}"
-fi
-
-# Check if dnaapler should be run
   parallel -j 4 --eta -k process_dnaapler ::: "${folders[@]}"
 fi
 
