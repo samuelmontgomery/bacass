@@ -187,7 +187,8 @@ process_annotate() {
     "${directory}/${folder}/flye/dnaapler/${folder}_reoriented.fasta" \
     --output "${directory}/${folder}/bakta" \
     --verbose \
-    --threads 4
+    --threads 4 \
+    --force
 
   # Run amrfinder
   amrfinder \
@@ -222,7 +223,9 @@ process_map() {
   qualimap \
     bamqc \
     -bam "${directory}/${folder}/minimap/${folder}.bam" \
-    -outdir "${directory}/${folder}/minimap/"
+    -outdir "${directory}/${folder}/minimap/" \
+    -nt 16 \
+    --java-mem-size=58G
 }
 
 process_QC_prep() {
