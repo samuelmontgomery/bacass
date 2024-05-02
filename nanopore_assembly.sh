@@ -174,7 +174,8 @@ process_dnaapler() {
     --input "${directory}/${folder}/flye/assembly.fasta" \
     --output "${directory}/${folder}/flye/dnaapler" \
     --prefix "${folder}" \
-    --threads 4
+    --threads 4 \
+    --force
 }
 
 # Function to process each folder for annotation steps
