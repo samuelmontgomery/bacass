@@ -1,0 +1,20 @@
+# Get base ubuntu docker image
+FROM condaforge/miniforge3:24.3.0-0
+
+# Install and update packages
+RUN mamba install \
+    -c conda-forge \
+    -c bioconda \
+    -c padlocbio \
+    --yes \
+    --freeze-installed \
+    bakta=1.9.3 \
+    genomad=1.8.0 \
+    padloc \
+    && conda clean -afy \
+    && mkdir -p workdir/database \
+    && mkdir workdir/bin
+
+COPY --chmod=0755 lib/db_install.sh /workdir/bin
+ENV PATH="$PATH:/workdir/bin"
+WORKDIR /workdir/database
