@@ -1,32 +1,48 @@
-# Bacterial genome assembly using Oxford Nanopore long-read sequencing
-**About**
+# Bacass - a pipeline for bacterial genome assembly from long-read sequences
 
-This script is a pipeline for the filtering, QC, assembly and annotation of bacterial genomes. 
 
-**Usage**
+## About
+Bacass is a workflow for filtering reads, *de novo* genome assembly, and genome annotation for bacterial isolates. 
 
-This pipeline can be used with data sequenced using R10.4.1 Nanopore flow cells with a <5% read error rate. It allows for the use of fastq.gz files output by basecalling using MinKNOW, or using bam files output by basecalling in Dorado.
-To run, create a conda/mamba environment using nano_env.yml (conda env create -f nano_env.yml), and install checkm2 in a conda environment called checkm
-Then simply download this script and run!
+## Installation
 
-It has a few options:
-- -d, --directory: pass the directory containing folders of reads for each bacteria on the command line (REQUIRED)
-- -f, --format: specify the input format of the reads as either fastq.gz or bam. default: fastq.gz
-- --skip-qc: whether to skip QC metrics via nanoplot. default: false
-- --skip-assembly: whether to run the assembly steps using flye. default: false
-- --skip-annotation: whether to run the annotation steps after assembly (adds quite a bit of time to run). default: false
+This workflow utilises docker for downloading the required databases and running the pipeline.
 
-Note: the script runs qc > assembly > annotation. If you skip assembly but not annotation, it will break!
+To install, clone this repository into a local environment
 
-Example:
-nanopore_assembly.sh -d /home/ubuntu/bacteria -f bam --annotate
+```
+git clone https://github.com/samuelmontgomery/nanopore_bacass
+```
 
-This script assumes you have your data in a folder structure as output when demultiplexing in MinKNOW, e.g. specifying --directory as /home/ubuntu/bacteria/lib/fastq_pass
+### Database installation
 
-  -- barcode01
-  -- barcode02
-  -- barcode03
+To install the databases, first pull down the docker image for installation
 
-etc
+```
+docker pull samueltmontgomery/bacassdb
+```
 
-it also works best if you rename each the barcode folders with a unique identifier as output files will use folder name to rename - nanopore_bam.sh will rename the folders (barcode01, barcode02) to the corresponding name in a file called barcodes.txt
+Then run the install.db wrapper script specifying the database location e.g.
+
+```
+install_db.sh -d /scratch/database
+```
+## Running the pipeline
+
+To run the pipeline, first pull down or build the dockerfile
+
+```
+docker pull samueltmontgomery/bacass
+```
+then run the wrapper script
+
+```
+bac_assembly.sh -i INPUT -o OUTPUT [-p PLATFORM] -d DATABASE [-f FORMAT] -g LENGTH
+
+Options:
+  -i, --input       Specify the input directory path (required)
+  -o, --output      Specify the output directory path (required)
+  -f, --format      Specify the input format (default: fastq.gz, options: bam)
+  -l, --length      Specify the expected genome length (required)
+  -d, --database    Specify the directory of bakta database (required)
+```
