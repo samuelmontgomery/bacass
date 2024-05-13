@@ -1,5 +1,33 @@
 # Get base ubuntu docker image
-FROM ubuntu:24.04
+FROM condaforge/miniforge3:24.3.0-0
 
 # Install and update packages
-RUN apt-get update && apt-get install -y
+RUN mamba install \
+    -c conda-forge \
+    -c bioconda \
+    --yes \
+    samtools=1.20.0 \
+    filtlong=0.2.1 \
+    nanoplot=1.42.0 \
+    parallel=20240322 \
+    dnaapler=0.7.0 \
+    flye=2.9.3 \
+    bakta=1.9.3 \
+    minimap2=2.28 \
+    qualimap=2.3 \
+    checkm-genome=1.2.2 \
+    kraken2=2.1.3 \
+    mlst=2.23.0 \
+    chopper=0.8.0 \
+    genomad=1.8.0 \
+    && mamba clean -afy \
+    && mkdir -p workdir/input \
+    && mkdir workdir/output \
+    && mkdir workdir/bin \
+    && mkdir workdir/database
+
+# Copy in running script with correct permissions
+COPY --chmod=0755 lib/bacass.sh /workdir/bin
+
+# Add bin directory to path
+ENV PATH="$PATH:/workdir/bin"
