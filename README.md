@@ -44,5 +44,5 @@ Options:
   -o, --output      Specify the output directory path (required)
   -f, --format      Specify the input format (default: fastq.gz, options: bam)
   -l, --length      Specify the expected genome length (required)
-  -d, --database    Specify the directory of bakta database (required)
+  -d, --database    Specify the database directory (required)
 ```
