@@ -3,7 +3,7 @@
 #help menu function
 help() {
     cat << EOF
-Usage: $(basename "$0") -i INPUT -o OUTPUT [-p PLATFORM] -d DATABASE [-f FORMAT] -g LENGTH
+Usage: $(basename "$0") -d DATABASE -c [docker|singularity]
 
 Options:
   -d, --database    Specify the directory for database installation (required)
@@ -29,5 +29,5 @@ mkdir -p "${database}/bakta" \
 docker run \
     -v "${database}":/workdir/database \
     -u `id -u $USER`:`id -g $USER` \
-    bacass_test \
+    samueltmontgomery/bacassdb \
     /workdir/bin/db_install.sh

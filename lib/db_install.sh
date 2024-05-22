@@ -13,7 +13,7 @@ tar -xzvf k2_standard_16gb_20240112.tar.gz -C "${database}"/kraken2
 rm k2_standard_16gb_20240112.tar.gz
 
 # Install Bakta database - full
-bakta_db download --output "${database}/bakta" --type light
+bakta_db download --output "${database}/bakta" --type full
 
 # Install genomad database
 genomad download-database "${database}"

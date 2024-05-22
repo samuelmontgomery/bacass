@@ -9,6 +9,7 @@ export BAKTA_DB="${database}/bakta/db"
 # Create subfolders for input if input data is in bam format
 if [ "${format}" == "bam" ]; then
   while read -r barcode new_name; do
+    new_name=$(echo "$new_name" | sed 's/[^a-zA-Z0-9]//g')
     mkdir -p "${input}/${new_name}"
     for file in "${input}"/*_barcode"${barcode}".bam; do
         if [ -e "$file" ]; then
@@ -58,7 +59,7 @@ process_filter() {
     
   else
     # Concatenate all fastq files into a single file
-    cat "${input}/${folder}"/*.fastq.gz | chopper -q 10 -l 1000 > "${output}/${folder}/reads_qc/${folder}.fastq.gz"
+    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - | chopper -q 10 -l 1000 | gzip > "${output}/${folder}/reads_qc/${folder}.fastq.gz"
 
     # Filter reads using filtlong
     filtlong \
@@ -131,6 +132,7 @@ process_annotate() {
 }
 
 process_genomad() {
+  folder="${1}"
   genomad \
   end-to-end \
   --cleanup \
@@ -149,7 +151,6 @@ process_qc_prep(){
 process_map() {
   folder="${1}"
   echo "Running minimap: ${folder}"
-
   mkdir "${output}/${folder}/minimap"
 
   # Map reads back to the reference using minimap2
@@ -178,7 +179,6 @@ export -f process_assembly
 export -f process_dnaapler
 export -f process_annotate
 export -f process_qc_prep
-export -f process_checkm
 export -f process_map
 export -f process_genomad
 
