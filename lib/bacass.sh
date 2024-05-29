@@ -47,7 +47,7 @@ process_filter() {
   # Check if the format is bam
   if [ "${format}" == "bam" ]; then
     # Use samtools to convert the file to fastq
-    samtools fastq -T "*" "${input}/${folder}"/*.bam | chopper -q 10 -l 1000 > "${output}/${folder}/reads_qc/${folder}.fastq"
+    samtools fastq -T "*" "${input}/${folder}"/*.bam | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" > "${output}/${folder}/reads_qc/${folder}.fastq"
 
     # Filter reads using filtlong
     filtlong \
@@ -59,7 +59,7 @@ process_filter() {
     
   else
     # Concatenate all fastq files into a single file
-    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - | chopper -q 10 -l 1000 | gzip > "${output}/${folder}/reads_qc/${folder}.fastq.gz"
+    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" | gzip > "${output}/${folder}/reads_qc/${folder}.fastq.gz"
 
     # Filter reads using filtlong
     filtlong \
@@ -127,7 +127,7 @@ process_annotate() {
     --verbose \
     --threads 16 \
     --prefix "${folder}" \
-    -m 5000 \
+    -m 1000 \
     --force
 }
 
@@ -159,7 +159,7 @@ process_map() {
     lr:hq \
     -y \
     -t 16 \
-    "${output}/${folder}/bakta/${folder}_reoriented.fna" \
+    "${output}/${folder}/bakta/${folder}.fna" \
     "${output}/${folder}/reads_qc/${folder}.fastq" \
     | samtools sort -o "${output}/${folder}/minimap/${folder}.bam"
 

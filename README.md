@@ -47,9 +47,11 @@ Options:
   -d, --database    Specify the directory of bakta database (required)
 ```
 
-The pipeline requires an input file called "barcodes.txt" in the input folder with your barcoded BAM files, which is a tab separated file with your barcodes matching the actual bacteria IDs - there is an example in the test directory
+The input for this pipeline should be run on the output from MinKNOW basecalling or dorado basecalling, as either folders of fastq.gz files split by barcode or as unmapped bam files respectively.
 
-Running the pipeline will move your BAM files into individual folders matching the bacterial IDs, and then write into matching folders in the output directory
+The pipeline requires an input file called "barcodes.txt" in the input folder, which is a tab separated file with your barcodes matching the actual bacteria IDs - there is an example in the test directory. Running the pipeline will either rename the folders containing fastq.gz files to match the isolate name in the barcodes.txt file, or create folders with the isolate name and move the bam files into the folders in the input directory
+
+The results will be written into matching folders in the output directory
 
 This directory structure is required for the parallelisation of the pipeline to reduce runtime
 It also assumes you have 16 CPUs, and 64GB of system RAM - the script will need editing if that is not the case.
