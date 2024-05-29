@@ -22,3 +22,6 @@ genomad download-database "${database}"
 wget https://github.com/padlocbio/padloc-db/archive/refs/tags/v2.0.0.tar.gz
 tar -xzvf v2.0.0.tar.gz -C "${database}/padloc"
 rm v2.0.0.tar.gz
+
+# Copy DNA control strand fasta for chopper
+wget https://raw.githubusercontent.com/samuelmontgomery/bacass/main/dna_cs.fasta -O "${database}/dna_cs.fasta"
