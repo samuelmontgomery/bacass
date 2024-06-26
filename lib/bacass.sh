@@ -54,20 +54,18 @@ process_filter() {
       --min_length 1000 \
       --keep_percent 90 \
       "${output}/${folder}/reads_qc/${folder}.fastq" \
-      2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) \
-      | gzip > "${output}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+      2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
     
   else
     # Concatenate all fastq files into a single file
-    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" | gzip > "${output}/${folder}/reads_qc/${folder}.fastq.gz"
+    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" > "${output}/${folder}/reads_qc/${folder}.fastq"
 
     # Filter reads using filtlong
     filtlong \
     --min_length 1000 \
     --keep_percent 90 \
     "${output}/${folder}/reads_qc/${folder}.fastq.gz" \
-    2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) \
-    | gzip > "${output}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
   fi 
 }
 
@@ -85,7 +83,7 @@ process_nanoplot() {
     --tsv_stats \
     --loglength \
     --info_in_report \
-    --fastq "${output}/${folder}/reads_qc/${folder}_filtered.fastq.gz"
+    --fastq "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
 }
 
 # Function to process each folder for assembly steps
@@ -95,10 +93,10 @@ process_assembly() {
 
   # Assemble using flye
   flye \
-    --nano-hq "${output}/${folder}/reads_qc/${folder}_filtered.fastq.gz" \
+    --nano-hq "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
     --scaffold \
     --genome-size "${length}" \
-    --asm-coverage 50 \
+    --asm-coverage 100 \
     --out-dir "${output}/${folder}/flye" \
     --threads 8
 }
@@ -172,6 +170,23 @@ process_map() {
     --java-mem-size=32G
 }
 
+process_compress() {
+  folder="${1}"
+  zstd \
+    -1 \
+    -T2 \
+    --rm \
+    "${output}/${folder}/reads_qc/${folder}.fastq" \
+    -o "${output}/${folder}/reads_qc/${folder}.fastq.zst"
+
+  zstd \
+    -1 \
+    -T2 \
+    --rm \
+    "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
+    -o "${output}/${folder}/reads_qc/${folder}_filtered.fastq.zst"
+}
+
 # Export functions
 export -f process_filter
 export -f process_nanoplot
@@ -181,6 +196,7 @@ export -f process_annotate
 export -f process_qc_prep
 export -f process_map
 export -f process_genomad
+export -f process_compress
 
 # Run functions
 parallel -j 8 process_filter ::: "${folders[@]}"
@@ -203,3 +219,5 @@ checkm \
 # Run mlst
 
 mlst "${output}"/QC/*.fna > "${output}"/QC/mlst.tsv
+
+parallel -j  process_compress ::: "${folders[@]}"
