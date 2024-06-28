@@ -37,7 +37,7 @@ fi
 folders=($(find "$input" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;))
 
 # Function to process each folder for initial steps (2 cores per job)
-process_filter() {
+process_chopper() {
   folder="${1}"
   echo "Processing folder: ${folder}"
 
@@ -48,24 +48,9 @@ process_filter() {
   if [ "${format}" == "bam" ]; then
     # Use samtools to convert the file to fastq
     samtools fastq -T "*" "${input}/${folder}"/*.bam | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" > "${output}/${folder}/reads_qc/${folder}.fastq"
-
-    # Filter reads using filtlong
-    filtlong \
-      --min_length 1000 \
-      --keep_percent 90 \
-      "${output}/${folder}/reads_qc/${folder}.fastq" \
-      2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
-    
   else
     # Concatenate all fastq files into a single file
     cat "${input}/${folder}"/*.fastq.gz | gunzip -c - | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" > "${output}/${folder}/reads_qc/${folder}.fastq"
-
-    # Filter reads using filtlong
-    filtlong \
-    --min_length 1000 \
-    --keep_percent 90 \
-    "${output}/${folder}/reads_qc/${folder}.fastq.gz" \
-    2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
   fi 
 }
 
@@ -74,9 +59,21 @@ process_trim() {
   folder="${1}"
   porechop_abi \
     -abi \
-    -i "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
+    -i "${output}/${folder}/reads_qc/${folder}.fastq" \
     -o "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
     -t 4
+}
+
+process_filter) {
+  folder="${1}"
+  genomesize=$(( $length * 200 ))
+  # Filter reads using filtlong
+  filtlong \
+    --min_length 1000 \
+    --keep_percent 90 \
+    --target_bases $genomesize \
+    "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
+    2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
 }
 
 # Function to process each folder for QC steps
@@ -93,7 +90,7 @@ process_nanoplot() {
     --tsv_stats \
     --loglength \
     --info_in_report \
-    --fastq "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
+    --fastq "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
 }
 
 # Function to process each folder for assembly steps
@@ -103,12 +100,10 @@ process_assembly() {
 
   # Assemble using flye
   flye \
-    --nano-hq "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
+    --nano-hq "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
     --scaffold \
-    --genome-size "${length}" \
-    --asm-coverage 100 \
     --out-dir "${output}/${folder}/flye" \
-    --threads 8
+    --threads 16
 }
 
 process_dnaapler() {
@@ -205,6 +200,8 @@ process_compress() {
 }
 
 # Export functions
+export -f process_chopper
+export -f process_trim
 export -f process_filter
 export -f process_nanoplot
 export -f process_assembly
@@ -217,10 +214,11 @@ export -f process_compress
 export -f process_trim
 
 # Run functions
-parallel -j 8 process_filter ::: "${folders[@]}"
+parallel -j 8 process_chopper ::: "${folders[@]}"
 parallel -j 4 process_trim ::: "${folders[@]}"
+parallel -j 8 process_filter ::: "${folders[@]}"
 parallel -j 8 process_nanoplot ::: "${folders[@]}"
-parallel -j 2 process_assembly ::: "${folders[@]}"
+parallel -j 1 process_assembly ::: "${folders[@]}"
 parallel -j 4 process_dnaapler ::: "${folders[@]}"
 parallel -j 1 process_annotate ::: "${folders[@]}"
 parallel -j 12 process_qc_prep ::: "${folders[@]}"
@@ -239,4 +237,4 @@ checkm \
 
 mlst "${output}"/QC/*.fna > "${output}"/QC/mlst.tsv
 
-parallel -j  process_compress ::: "${folders[@]}"
+parallel -j 4  process_compress ::: "${folders[@]}"
