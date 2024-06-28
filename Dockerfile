@@ -20,6 +20,7 @@ RUN mamba install \
     mlst=2.23.0 \
     chopper=0.8.0 \
     genomad=1.8.0 \
+    porechop_abi=0.5.0 \
     && mamba clean -afy \
     && mkdir -p workdir/input \
     && mkdir workdir/output \

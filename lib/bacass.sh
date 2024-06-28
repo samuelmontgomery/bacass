@@ -69,6 +69,16 @@ process_filter() {
   fi 
 }
 
+# Function to trim any remaining adapter and/or barcodes from reads
+process_trim() {
+  folder="${1}"
+  porechop_abi \
+    -abi \
+    -i "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
+    -o "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
+    -t 4
+}
+
 # Function to process each folder for QC steps
 process_nanoplot() {
   folder="${1}"
@@ -83,7 +93,7 @@ process_nanoplot() {
     --tsv_stats \
     --loglength \
     --info_in_report \
-    --fastq "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
+    --fastq "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
 }
 
 # Function to process each folder for assembly steps
@@ -93,7 +103,7 @@ process_assembly() {
 
   # Assemble using flye
   flye \
-    --nano-hq "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
+    --nano-hq "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
     --scaffold \
     --genome-size "${length}" \
     --asm-coverage 100 \
@@ -185,6 +195,13 @@ process_compress() {
     --rm \
     "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
     -o "${output}/${folder}/reads_qc/${folder}_filtered.fastq.zst"
+
+  zstd \
+    -1 \
+    -T2 \
+    --rm \
+    "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
+    -o "${output}/${folder}/reads_qc/${folder}_trimmed.fastq.zst"
 }
 
 # Export functions
@@ -197,9 +214,11 @@ export -f process_qc_prep
 export -f process_map
 export -f process_genomad
 export -f process_compress
+export -f process_trim
 
 # Run functions
 parallel -j 8 process_filter ::: "${folders[@]}"
+parallel -j 4 process_trim ::: "${folders[@]}"
 parallel -j 8 process_nanoplot ::: "${folders[@]}"
 parallel -j 2 process_assembly ::: "${folders[@]}"
 parallel -j 4 process_dnaapler ::: "${folders[@]}"
