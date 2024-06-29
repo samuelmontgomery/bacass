@@ -37,7 +37,7 @@ fi
 folders=($(find "$input" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;))
 
 # Function to process each folder for initial steps (2 cores per job)
-process_chopper() {
+process_prep() {
   folder="${1}"
   echo "Processing folder: ${folder}"
 
@@ -47,24 +47,25 @@ process_chopper() {
   # Check if the format is bam
   if [ "${format}" == "bam" ]; then
     # Use samtools to convert the file to fastq
-    samtools fastq -T "*" "${input}/${folder}"/*.bam | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" > "${output}/${folder}/reads_qc/${folder}.fastq"
+    samtools fastq -T "*" "${input}/${folder}"/*.bam > "${output}/${folder}/reads_qc/${folder}.fastq"
   else
     # Concatenate all fastq files into a single file
-    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - | chopper -q 10 -l 1000 --contam "${database}/dna_cs.fasta" > "${output}/${folder}/reads_qc/${folder}.fastq"
+    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - > "${output}/${folder}/reads_qc/${folder}.fastq"
   fi 
 }
 
 # Function to trim any remaining adapter and/or barcodes from reads
 process_trim() {
   folder="${1}"
-  porechop_abi \
-    -abi \
+  chopper \
+    -q 10 \
+    -l 1000 \
+    --contam "${database}/dna_cs.fasta" \
     -i "${output}/${folder}/reads_qc/${folder}.fastq" \
-    -o "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
-    -t 4
+    2> >(tee "${output}/${folder}/reads_qc/${folder}_chopper.log" >&2) > "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
 }
 
-process_filter) {
+process_filter() {
   folder="${1}"
   genomesize=$(( $length * 200 ))
   # Filter reads using filtlong
@@ -73,7 +74,7 @@ process_filter) {
     --keep_percent 90 \
     --target_bases $genomesize \
     "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
-    2> >(tee "${output}/${folder}/reads_qc/${folder}.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
+    2> >(tee "${output}/${folder}/reads_qc/${folder}_filtlong.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
 }
 
 # Function to process each folder for QC steps
@@ -200,7 +201,7 @@ process_compress() {
 }
 
 # Export functions
-export -f process_chopper
+export -f process_prep
 export -f process_trim
 export -f process_filter
 export -f process_nanoplot
@@ -214,7 +215,7 @@ export -f process_compress
 export -f process_trim
 
 # Run functions
-parallel -j 8 process_chopper ::: "${folders[@]}"
+parallel -j 16 process_prep ::: "${folders[@]}"
 parallel -j 4 process_trim ::: "${folders[@]}"
 parallel -j 8 process_filter ::: "${folders[@]}"
 parallel -j 8 process_nanoplot ::: "${folders[@]}"
