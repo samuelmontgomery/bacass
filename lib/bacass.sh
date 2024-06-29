@@ -24,13 +24,14 @@ if [ "${format}" == "bam" ]; then
 # Rename folders for input if input data is in fastq format
   while read -r barcode new_name; do
     old_name="barcode$barcode"
-    if [ -d "$old_name" ]; then
-        mv "$old_name" "$new_name"
+    new_name=$(echo "$new_name" | sed 's/[^a-zA-Z0-9]//g')
+    if [ -d "${input}/${old_name}" ]; then
+        mv "${input}/${old_name}" "${input}/${new_name}"
         echo "Renamed $old_name to $new_name"
     else
         echo "Error: $old_name not found."
     fi
-  done < barcodes.txt
+  done < "${input}/barcodes.txt"
 fi
 
 # Get a list of all immediate subfolders in the specified directory
