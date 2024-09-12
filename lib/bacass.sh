@@ -213,7 +213,6 @@ export -f process_qc_prep
 export -f process_map
 export -f process_genomad
 export -f process_compress
-export -f process_trim
 
 # Run functions
 parallel -j 16 process_prep ::: "${folders[@]}"
@@ -239,4 +238,5 @@ checkm \
 
 mlst "${output}"/QC/*.fna > "${output}"/QC/mlst.tsv
 
+# Compress files with zstd
 parallel -j 4  process_compress ::: "${folders[@]}"
