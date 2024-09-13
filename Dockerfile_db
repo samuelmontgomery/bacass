@@ -5,16 +5,18 @@ FROM condaforge/miniforge3:24.3.0-0
 RUN mamba install \
     -c conda-forge \
     -c bioconda \
-    -c padlocbio \
     --yes \
     --freeze-installed \
-    bakta=1.9.3 \
+    python=3.10 \
+    bakta=1.9.4 \
     genomad=1.8.0 \
-    padloc \
     && conda clean -afy \
     && mkdir -p workdir/database \
     && mkdir workdir/bin
 
+# Copy in running script with permissions
 COPY --chmod=0755 lib/db_install.sh /workdir/bin
+
+# Add bin directory to path and set working directory
 ENV PATH="$PATH:/workdir/bin"
 WORKDIR /workdir/database
