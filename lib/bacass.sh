@@ -37,7 +37,7 @@ fi
 # Get a list of all immediate subfolders in the specified directory
 folders=($(find "$input" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;))
 
-# Function to process each folder for initial steps (2 cores per job)
+# Process each folder for initial steps
 process_prep() {
   folder="${1}"
   echo "Processing folder: ${folder}"
@@ -55,7 +55,7 @@ process_prep() {
   fi 
 }
 
-# Function to trim any remaining adapter and/or barcodes from reads
+# Trim to min q10, >1000bp, remove DNA CS from reads
 process_trim() {
   folder="${1}"
   chopper \
@@ -66,6 +66,7 @@ process_trim() {
     2> >(tee "${output}/${folder}/reads_qc/${folder}_chopper.log" >&2) > "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
 }
 
+# Filter reads using filtlong to either target 200x coverage, or keeping 90% of reads
 process_filter() {
   folder="${1}"
   genomesize=$(( $length * 200 ))
@@ -78,7 +79,7 @@ process_filter() {
     2> >(tee "${output}/${folder}/reads_qc/${folder}_filtlong.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
 }
 
-# Function to process each folder for QC steps
+# Generate QC stats using NanoPlot
 process_nanoplot() {
   folder="${1}"
   echo "Running NanoPlot: ${folder}"
@@ -95,7 +96,7 @@ process_nanoplot() {
     --fastq "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
 }
 
-# Function to process each folder for assembly steps
+# Run de novo assembly using flye
 process_assembly() {
   folder="${1}"
   echo "Running assembly: ${folder}"
@@ -108,9 +109,9 @@ process_assembly() {
     --threads 16
 }
 
+# Reorient assemblies using dnaapler
 process_dnaapler() {
   folder="${1}"
-  # Filter flye assembly for only circular contig with appropriate genome size
    dnaapler \
     all \
     --input "${output}/${folder}/flye/assembly.fasta" \
@@ -120,7 +121,7 @@ process_dnaapler() {
     --force
 }
 
-# Function to process each folder for annotation steps
+# Annotate genomes using bakta
 process_annotate() {
   folder="${1}"
   echo "Running bakta: ${folder}"
@@ -136,6 +137,7 @@ process_annotate() {
     --force
 }
 
+# Find plasmids and proviruses using genomad
 process_genomad() {
   folder="${1}"
   genomad \
@@ -153,6 +155,7 @@ process_qc_prep(){
   cp "${output}/${folder}/bakta/${folder}.fna" "${output}/QC"
 }
 
+# Map reads back to assembly
 process_map() {
   folder="${1}"
   echo "Running minimap: ${folder}"
@@ -226,7 +229,7 @@ parallel -j 12 process_qc_prep ::: "${folders[@]}"
 parallel -j 1 process_map ::: "${folders[@]}"
 parallel -j 1 process_genomad ::: "${folders[@]}"
 
-# Run checkM
+# Run checkM for completeness and contamination
 checkm \
   lineage_wf \
   -t 16 \
@@ -234,9 +237,8 @@ checkm \
   "${output}/QC" \
   "${output}/QC/checkm"
 
-# Run mlst
-
+# Run mlst for sequence typing
 mlst "${output}"/QC/*.fna > "${output}"/QC/mlst.tsv
 
-# Compress files with zstd
+# Compress read files with zstd to save space
 parallel -j 4  process_compress ::: "${folders[@]}"
