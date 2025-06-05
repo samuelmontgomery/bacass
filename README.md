@@ -16,28 +16,24 @@ git clone https://github.com/samuelmontgomery/bacass
 
 ### Database installation
 
-To install the databases, first pull down the docker image for installation
+To install the databases, first pull down the docker images for installation
 
 ```
-docker pull samueltmontgomery/bacassdb
+docker pull samueltmontgomery/bacass
+docker pull samueltmontgomery/bacassqc
 ```
 
-Then run the install.db wrapper script specifying the database location e.g.
+Then run the install_db wrapper script specifying the database location e.g.
 
 ```
 install_db.sh -d /scratch/database
 ```
 ## Running the pipeline
 
-To run the pipeline, first pull down or build the dockerfile
+To run the pipeline, first pull down or build the dockerfile then run the wrapper script
 
 ```
-docker pull samueltmontgomery/bacass
-```
-then run the wrapper script
-
-```
-bac_assembly.sh -i INPUT -o OUTPUT [-p PLATFORM] -d DATABASE [-f FORMAT] -g LENGTH
+bac_assembly.sh -i INPUT -o OUTPUT [-p PLATFORM] -d DATABASE [-f FORMAT] -g LENGTH [-t CPUs]
 
 Options:
   -i, --input       Specify the input directory path (required)
@@ -45,6 +41,7 @@ Options:
   -f, --format      Specify the input format (default: fastq.gz, options: bam)
   -l, --length      Specify the expected genome length (required)
   -d, --database    Specify the directory of bakta database (required)
+  -t, --cpus        Specify the number of CPUs/threads to use for the pipeline (default: 16)
 ```
 
 The input for this pipeline should be run on the output from MinKNOW basecalling or dorado basecalling, as either folders of fastq.gz files split by barcode or as unmapped bam files respectively.
@@ -54,4 +51,3 @@ The pipeline requires an input file called "barcodes.txt" in the input folder, w
 The results will be written into matching folders in the output directory
 
 This directory structure is required for the parallelisation of the pipeline to reduce runtime
-It also assumes you have 16 CPUs, and 64GB of system RAM - the script will need editing if that is not the case.
