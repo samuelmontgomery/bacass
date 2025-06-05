@@ -1,0 +1,19 @@
+# Get base ubuntu docker image
+FROM condaforge/miniforge3:25.3.0-3
+
+# Install and update packages
+RUN mamba install \
+    -c conda-forge \
+    -c bioconda \
+    --yes \
+    python=3.7 \
+    checkm2=1.1.0 \
+    mlst=2.23.0 \
+    && mamba clean -afy
+
+# Copy in running script with permissions
+COPY --chmod=0755 lib/bacass_qc.sh /workdir/bin
+COPY --chmod=0755 lib/qc_db_install.sh /workdir/bin
+
+# Add bin directory to path
+ENV PATH="$PATH:/workdir/bin"
