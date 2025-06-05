@@ -2,6 +2,8 @@
 
 export database="/workdir/database"
 
+cd "${database}"
+
 # Install checkM database
 wget https://data.ace.uq.edu.au/public/CheckM_databases/checkm_data_2015_01_16.tar.gz
 tar -xzvf checkm_data_2015_01_16.tar.gz -C "${database}"/checkm
