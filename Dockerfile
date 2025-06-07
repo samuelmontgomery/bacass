@@ -7,6 +7,7 @@ RUN mamba install \
     -c bioconda \
     --yes \
     python=3.11  \
+    kraken2=2.1.5 \
     samtools=1.22.0 \
     nanoplot=1.44.1 \
     parallel=20250422 \
