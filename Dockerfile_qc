@@ -6,10 +6,12 @@ RUN mamba install \
     -c conda-forge \
     -c bioconda \
     --yes \
-    python=3.7 \
     checkm2=1.1.0 \
-    mlst=2.23.0 \
-    && mamba clean -afy
+    && mamba clean -afy \
+    && mkdir -p workdir/input \
+    && mkdir workdir/output \
+    && mkdir workdir/bin \
+    && mkdir workdir/database
 
 # Copy in running script with permissions
 COPY --chmod=0755 lib/bacass_qc.sh /workdir/bin
