@@ -19,6 +19,7 @@ RUN mamba install \
     checkm-genome=1.2.3 \
     chopper=0.10.0 \
     genomad=1.11.0 \
+    numpy=2.2.6 \
     && mamba clean -afy \
     && mkdir -p workdir/input \
     && mkdir workdir/output \
