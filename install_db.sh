@@ -31,9 +31,3 @@ docker run \
     -u `id -u $USER`:`id -g $USER` \
     samueltmontgomery/bacass \
     /workdir/bin/db_install.sh
-
-docker run \
-    -v "${database}":/workdir/database \
-    -u `id -u $USER`:`id -g $USER` \
-    samueltmontgomery/bacassqc \
-    /workdir/bin/qc_db_install.sh
