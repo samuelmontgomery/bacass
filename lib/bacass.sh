@@ -293,7 +293,17 @@ checkm \
   lineage_wf \
   -t "${cpus}" \
   --file "${output}/QC/checkm/checkm_results.tsv" \
+  --tab_table \
   "${output}/QC/input" \
+  "${output}/QC/checkm"
+
+checkm \
+  qa \
+  -o 2 \
+  -t "${cpus}" \
+  --file "${output}/QC/checkm/checkm_results.tsv" \
+  --tab_table \
+  "${output}/QC/checkm/lineage.ms" \
   "${output}/QC/checkm"
 
 # Compress read files with zstd to save space
