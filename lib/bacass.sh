@@ -9,7 +9,7 @@ export BAKTA_DB="${database}/bakta/db"
 # Create subfolders for input if input data is in bam format
 if [ "${format}" == "bam" ]; then
   while read -r barcode new_name; do
-    new_name=$(echo "$new_name" | sed 's/[^a-zA-Z0-9]//g')
+    new_name=$(echo "$new_name" | sed 's/[^a-zA-Z0-9_]//g')
     mkdir -p "${input}/${new_name}"
     for file in "${input}"/*_barcode"${barcode}".bam; do
         if [ -e "$file" ]; then
@@ -24,7 +24,7 @@ if [ "${format}" == "bam" ]; then
 # Rename folders for input if input data is in fastq format
   while read -r barcode new_name; do
     old_name="barcode$barcode"
-    new_name=$(echo "$new_name" | sed 's/[^a-zA-Z0-9]//g')
+    new_name=$(echo "$new_name" | sed 's/[^a-zA-Z0-9_]//g')
     if [ -d "${input}/${old_name}" ]; then
         mv "${input}/${old_name}" "${input}/${new_name}"
         echo "Renamed $old_name to $new_name"
@@ -45,19 +45,32 @@ process_prep() {
   # Create output dir variable
   mkdir -p "${output}/${folder}/reads_qc"
 
+  # Skip if reads already exist
+  if [[ -f "${output}/${folder}/reads_qc/${folder}.fastq" ]]; then
+    echo "Reads already exist for ${folder}, skipping..."
+    return 0
+  fi
+
   # Check if the format is bam
   if [ "${format}" == "bam" ]; then
     # Use samtools to convert the file to fastq
     samtools fastq -T "*" "${input}/${folder}"/*.bam > "${output}/${folder}/reads_qc/${folder}.fastq"
   else
     # Concatenate all fastq files into a single file
-    cat "${input}/${folder}"/*.fastq.gz | gunzip -c - > "${output}/${folder}/reads_qc/${folder}.fastq"
+    cat "${input}/${folder}"/*.fastq.gz | zstd -d -c > "${output}/${folder}/reads_qc/${folder}.fastq"
   fi 
 }
 
 # Trim to min q10, >1000bp, remove DNA CS from reads
 process_trim() {
   folder="${1}"
+
+  # Skip if chopper output already exists
+  if [[ -f "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" ]]; then
+    echo "Read trimming already complete for ${folder}, skipping..."
+    return 0
+  fi
+
   chopper \
     -q 10 \
     -l 1000 \
@@ -66,17 +79,26 @@ process_trim() {
     2> >(tee "${output}/${folder}/reads_qc/${folder}_chopper.log" >&2) > "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
 }
 
-# Filter reads using filtlong to either target 200x coverage, or keeping 90% of reads
-process_filter() {
+# Classify reads using kraken2 to identify species
+process_kraken() {
   folder="${1}"
-  genomesize=$(( $length * 200 ))
-  # Filter reads using filtlong
-  filtlong \
-    --min_length 1000 \
-    --keep_percent 90 \
-    --target_bases $genomesize \
-    "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
-    2> >(tee "${output}/${folder}/reads_qc/${folder}_filtlong.log" >&2) > "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
+  echo "Running kraken2: ${folder}"
+  mkdir -p "${output}/${folder}/kraken2"
+
+  # Skip if Kraken2 output already exists
+  if [[ -f "${output}/${folder}/kraken2/${folder}.report" ]]; then
+    echo "Kraken2 report already exist for ${folder}, skipping..."
+    return 0
+  fi
+
+  k2 \
+  classify \
+  --db "${database}/kraken2" \
+  --threads 16 \
+  --use-names \
+  --output "${output}/${folder}/kraken2/${folder}.kraken" \
+  --report "${output}/${folder}/kraken2/${folder}.report" \
+  "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
 }
 
 # Generate QC stats using NanoPlot
@@ -84,7 +106,13 @@ process_nanoplot() {
   folder="${1}"
   echo "Running NanoPlot: ${folder}"
 
-  # Create NanoPlot QC plots
+  # Skip if Nanoplot output already exists
+  if [[ -f "${output}/${folder}/nanoplot/${folder}NanoStats.txt" ]]; then
+    echo "Nanoplot statistics already exist for ${folder}, skipping..."
+    return 0
+  fi
+
+  # Create NanoPlot QC plots for trimmed reads
   NanoPlot \
     -t 2 \
     --huge \
@@ -93,7 +121,9 @@ process_nanoplot() {
     --tsv_stats \
     --loglength \
     --info_in_report \
-    --fastq "${output}/${folder}/reads_qc/${folder}_filtered.fastq"
+    --no_static \
+    -p "${folder}" \
+    --fastq "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
 }
 
 # Run de novo assembly using flye
@@ -101,18 +131,33 @@ process_assembly() {
   folder="${1}"
   echo "Running assembly: ${folder}"
 
+  # Skip if assembly already complete
+  if [[ -f "${output}/${folder}/flye/assembly.fasta" ]]; then
+    echo "Assembly already exists for ${folder}, skipping..."
+    return 0
+  fi
+
   # Assemble using flye
   flye \
-    --nano-hq "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
+    --nano-hq "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
+    --genome-size "${length}" \
+    --asm-coverage 50 \
     --scaffold \
     --out-dir "${output}/${folder}/flye" \
-    --threads 16
+    --threads "${cpus}" 
 }
 
 # Reorient assemblies using dnaapler
 process_dnaapler() {
   folder="${1}"
-   dnaapler \
+
+  # Skip if dnaapler output already exists
+  if [[ -f "${output}/${folder}/flye/dnaapler/${folder}_reoriented.fasta" ]]; then
+    echo "dnaapler output already exists for ${folder}, skipping..."
+    return 0
+  fi
+
+  dnaapler \
     all \
     --input "${output}/${folder}/flye/assembly.fasta" \
     --output "${output}/${folder}/flye/dnaapler" \
@@ -126,12 +171,18 @@ process_annotate() {
   folder="${1}"
   echo "Running bakta: ${folder}"
 
+  # Skip if annotation already complete
+  if [[ -f "${output}/${folder}/bakta/${folder}.fna" ]]; then
+    echo "Assembly already exists for ${folder}, skipping..."
+    return 0
+  fi
+
   # Annotate with bakta
   bakta \
     "${output}/${folder}/flye/dnaapler/${folder}_reoriented.fasta" \
     --output "${output}/${folder}/bakta" \
     --verbose \
-    --threads 16 \
+    --threads "${cpus}" \
     --prefix "${folder}" \
     -m 1000 \
     --force
@@ -140,6 +191,13 @@ process_annotate() {
 # Find plasmids and proviruses using genomad
 process_genomad() {
   folder="${1}"
+
+  # Skip if genomad already complete
+  if [[ -f "${output}/${folder}/genomad/${folder}_summary.log" ]]; then
+    echo "Genomad already run for ${folder}, skipping..."
+    return 0
+  fi
+
   genomad \
   end-to-end \
   --cleanup \
@@ -149,10 +207,10 @@ process_genomad() {
 }
 
 # Copy genomes for checkM
-mkdir -p "${output}/QC"
+mkdir -p "${output}/QC/input"
 process_qc_prep(){
   folder="${1}"
-  cp "${output}/${folder}/bakta/${folder}.fna" "${output}/QC"
+  cp "${output}/${folder}/bakta/${folder}.fna" "${output}/QC/input"
 }
 
 # Map reads back to assembly
@@ -161,14 +219,20 @@ process_map() {
   echo "Running minimap: ${folder}"
   mkdir "${output}/${folder}/minimap"
 
+  # Skip if annotation already complete
+  if [[ -f "${output}/${folder}/qualimap/genome_results.txt" ]]; then
+    echo "Mapping already exists for ${folder}, skipping..."
+    return 0
+  fi
+
   # Map reads back to the reference using minimap2
   minimap2 \
     -ax \
-    lr:hq \
+    lr:hqae \
     -y \
-    -t 16 \
+    -t "${cpus}" \
     "${output}/${folder}/bakta/${folder}.fna" \
-    "${output}/${folder}/reads_qc/${folder}.fastq" \
+    "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
     | samtools sort -o "${output}/${folder}/minimap/${folder}.bam"
 
   # Run qualimap
@@ -176,69 +240,71 @@ process_map() {
     bamqc \
     -bam "${output}/${folder}/minimap/${folder}.bam" \
     -outdir "${output}/${folder}/qualimap/" \
-    -nt 16 \
+    -nt "${cpus}" \
     --java-mem-size=32G
 }
 
 process_compress() {
   folder="${1}"
   zstd \
-    -1 \
-    -T2 \
+    -T4 \
+    --format=gzip \
     --rm \
     "${output}/${folder}/reads_qc/${folder}.fastq" \
-    -o "${output}/${folder}/reads_qc/${folder}.fastq.zst"
+    -o "${output}/${folder}/reads_qc/${folder}.fastq.gz"
 
   zstd \
-    -1 \
-    -T2 \
-    --rm \
-    "${output}/${folder}/reads_qc/${folder}_filtered.fastq" \
-    -o "${output}/${folder}/reads_qc/${folder}_filtered.fastq.zst"
-
-  zstd \
-    -1 \
-    -T2 \
+    -T4 \
+    --format=gzip \
     --rm \
     "${output}/${folder}/reads_qc/${folder}_trimmed.fastq" \
-    -o "${output}/${folder}/reads_qc/${folder}_trimmed.fastq.zst"
+    -o "${output}/${folder}/reads_qc/${folder}_trimmed.fastq.gz"
 }
 
 # Export functions
 export -f process_prep
 export -f process_trim
-export -f process_filter
+export -f process_kraken
 export -f process_nanoplot
 export -f process_assembly
 export -f process_dnaapler
 export -f process_annotate
+export -f process_genomad
 export -f process_qc_prep
 export -f process_map
 export -f process_genomad
 export -f process_compress
 
 # Run functions
-parallel -j 16 process_prep ::: "${folders[@]}"
-parallel -j 4 process_trim ::: "${folders[@]}"
-parallel -j 8 process_filter ::: "${folders[@]}"
-parallel -j 8 process_nanoplot ::: "${folders[@]}"
+parallel -j "$cpus" process_prep ::: "${folders[@]}"
+parallel -j "$cpus/4" process_trim ::: "${folders[@]}"
+parallel -j "$cpus/16" process_kraken ::: "${folders[@]}"
+parallel -j "$cpus/2" process_nanoplot ::: "${folders[@]}"
 parallel -j 1 process_assembly ::: "${folders[@]}"
-parallel -j 4 process_dnaapler ::: "${folders[@]}"
+parallel -j "$cpus/4" process_dnaapler ::: "${folders[@]}"
 parallel -j 1 process_annotate ::: "${folders[@]}"
-parallel -j 12 process_qc_prep ::: "${folders[@]}"
+parallel -j 1 process_genomad ::: "${folders[@]}"
+parallel -j "$cpus" process_qc_prep ::: "${folders[@]}"
 parallel -j 1 process_map ::: "${folders[@]}"
 parallel -j 1 process_genomad ::: "${folders[@]}"
 
 # Run checkM for completeness and contamination
 checkm \
   lineage_wf \
-  -t 16 \
+  -t "${cpus}" \
   --file "${output}/QC/checkm/checkm_results.tsv" \
-  "${output}/QC" \
+  --tab_table \
+  "${output}/QC/input" \
   "${output}/QC/checkm"
 
-# Run mlst for sequence typing
-mlst "${output}"/QC/*.fna > "${output}"/QC/mlst.tsv
+checkm \
+  qa \
+  -o 2 \
+  -t "${cpus}" \
+  --file "${output}/QC/checkm/checkm_results.tsv" \
+  --tab_table \
+  "${output}/QC/checkm/lineage.ms" \
+  "${output}/QC/checkm"
 
 # Compress read files with zstd to save space
-parallel -j 4  process_compress ::: "${folders[@]}"
+parallel -j "$cpus/4" process_compress ::: "${folders[@]}"
