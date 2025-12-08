@@ -67,5 +67,5 @@ docker run \
     -v "${output}":/workdir/output \
     -v "${database}":/workdir/database \
     -u `id -u $USER`:`id -g $USER` \
-    samueltmontgomery/bacass \
+    samueltmontgomery/bacass:latest \
     /workdir/bin/bacass.sh

@@ -75,6 +75,8 @@ process_trim() {
     -q 10 \
     -l 1000 \
     --contam "${database}/dna_cs.fasta" \
+    --trim-approach trim-by-quality \
+    --cutoff 15 \
     -i "${output}/${folder}/reads_qc/${folder}.fastq" \
     2> >(tee "${output}/${folder}/reads_qc/${folder}_chopper.log" >&2) > "${output}/${folder}/reads_qc/${folder}_trimmed.fastq"
 }
